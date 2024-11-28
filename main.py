@@ -67,6 +67,7 @@ def main():
             print(f"Printer Name: {printer_name}, IP Address: {printer_ip}")
         else:
             print("Printer not found.")
+        sys.exit(0)
 
     global socket
 
