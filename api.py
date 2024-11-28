@@ -126,24 +126,14 @@ def get_printer_status(socket):
 
     return printer_info
 
-def upload_file(socket, filename):
-    try:
-        with open(filename) as f:
-            lines = f.readlines()
-    except FileNotFoundError:
-        print(f"Error: The file '{filename}' was not found.")
-        return False
-    except IOError:
-        print(f"Error: An IO error occurred while opening the file '{filename}'.")
-        return False
+def parse_gx_file(filename):
+    file = open(filename, mode='rb')
+    file_contents = file.read()
+    return len(file_contents), file_contents
 
-    # First check filename to ensure it is below 36 characters (on my Guider 2s that causes the uploaded to silently fail):
-    # Note that it LOOKS like they count the length including this prefix, so the actual limit is around 28 characters for the user's filename.
-    length = len('0:/user/{}'.format(os.path.basename(filename)))
-
-    if length > 42:
-        print ("Filenames need to be 36 characters or less. Please shorten your filename and try again.")
-        return False
+def parse_gcode_file(filename):
+    file = open(filename)
+    lines = file.readlines()
 
     # The following is a hack to cleanup Cura-generated temperature commands that have a decimal point
     # in the temperature. Such commands trip up the FF firmware and causes the printer to ignore its temperature setting!
@@ -171,7 +161,30 @@ def upload_file(socket, filename):
 
     # Combine lines back into a single string and encode
     file_contents = ''.join(processed_lines).encode()
-    length = len(file_contents)
+    return len(file_contents), file_contents
+
+def upload_file(socket, filename):
+    # First check filename to ensure it is below 36 characters (on my Guider 2s that causes the uploaded to silently fail):
+    # Note that it LOOKS like they count the length including this prefix, so the actual limit is around 28 characters for the user's filename.
+    length = len('0:/user/{}'.format(os.path.basename(filename)))
+
+    if length > 42:
+        print ("Filenames need to be 36 characters or less. Please shorten your filename and try again.")
+        return False
+
+    # Foward to appropriate file parser
+    try:
+        ext = os.path.splitext(filename)[1]
+        if ext == ".gx":
+            length, file_contents = parse_gx_file(filename)
+        else:
+            length, file_contents = parse_gcode_file(filename)
+    except FileNotFoundError:
+        print(f"Error: The file '{filename}' was not found.")
+        return False
+    except IOError:
+        print(f"Error: An IO error occurred while opening the file '{filename}'.")
+        return False
 
     encoded_command = '~M28 {} 0:/user/{}\r\n'.format(length, os.path.basename(filename)).encode()
 
@@ -190,6 +203,7 @@ def upload_file(socket, filename):
     # Send M29 packet indicating EOF
     socket.sendall(b'~M29\r\n')
     M29_response = socket.recv(BUFFER_SIZE)
+    print(M29_response)
 
     # TODO: Figure out how to actually determine file upload failures. This thing seems to just respond in the same way even when the file doesn't make it.
     return True
